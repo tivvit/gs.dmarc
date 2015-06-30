@@ -57,6 +57,21 @@ class FailureReporting(Enum):
     spf = 3
 
 
+class ReportAddress():
+    def __init__(self, address):
+        self._plain_address = address
+        chunks = address.split("!")
+        self.address = chunks[0]
+        self.size_limit = None
+        if len(chunks) == 2:
+            self.size_limit = chunks[1]
+
+    def __repr__(self):
+        if self.size_limit:
+            return "%s!%s" % (self.address, self.size_limit)
+        else:
+            return self.address
+
 class Dmarc:
     def __init__(self):
         # TODO all variables should be private and have getters
@@ -75,7 +90,8 @@ class Dmarc:
         self.rf = "afrf"
         self.ruf = None
         self.failure_reporting = FailureReporting["all"]
-        self._parsed_record = {}
+        self.__parsed_record = {}
+        self.__psl = None
 
     def should_check(self):
         if not self.percent:
@@ -83,7 +99,10 @@ class Dmarc:
 
         return random.randint(0, 99) < self.percent
 
-    def answer_to_dict(self, answer):
+    def set_public_suffix_list(self, psl):
+        self.__psl = psl
+
+    def __answer_to_dict(self, answer):
         '''Turn the DNS DMARC answer into a dict of tag:value pairs.'''
         a = answer.strip('"').strip(' ')
         rawTags = [t.split('=') for t in a.split(';') if t]
@@ -91,7 +110,7 @@ class Dmarc:
         retval = dict(tags)
         return retval
 
-    def _map_record_fields(self, record_dict):
+    def __map_record_fields(self, record_dict):
         mapping = {
             "v": "version",
             "p": "policy",
@@ -107,7 +126,7 @@ class Dmarc:
         }
 
         for key, value in record_dict.items():
-            if key == "p":
+            if key == "p" or key == "sp":
                 if hasattr(ReceiverPolicy, value):
                     value = ReceiverPolicy[value]
                 else:
@@ -115,7 +134,7 @@ class Dmarc:
             if key == "pct" or key == "ri":
                 value = int(value)
             if key == "rua" or key == "ruf":
-                value = value.split(",")
+                value = [ReportAddress(i) for i in value.split(",")]
             if key == "aspf" or key == "adkim" and hasattr(AlignmentMode, value):
                     value = AlignmentMode[value]
             if key == "fo" and hasattr(FailureReporting, value):
@@ -147,8 +166,8 @@ class Dmarc:
             # http://tools.ietf.org/html/draft-kucherawy-dmarc-base-04#section-7.1
 
             if self.record.startswith('"v=DMARC1'):
-                self._parsed_record = self.answer_to_dict(self.record)
-                self._map_record_fields(self._parsed_record)
+                self.__parsed_record = self.__answer_to_dict(self.record)
+                self.__map_record_fields(self.__parsed_record)
 
                 # policy field is mandatory
                 if not self.policy:
@@ -162,7 +181,7 @@ class Dmarc:
         return retval
 
 
-    def receiver_policy(self, host):
+    def __receiver_policy(self, host):
         '''Get the DMARC receiver policy for a host.
 
     :param str host: The host to lookup.
@@ -183,13 +202,17 @@ class Dmarc:
         if retval == ReceiverPolicy.noDmarc:
             # TODO: automatically update the suffix list data file
             # <https://publicsuffix.org/list/effective_tld_names.dat>
-            fn = get_suffix_list_file_name()
-            with open(fn, 'r') as suffixList:
-                psl = PublicSuffixList(suffixList)
-                newHost = psl.get_public_suffix(hostSansDmarc)
+            if not self.__psl:
+                fn = get_suffix_list_file_name()
+                with open(fn, 'r') as suffixList:
+                    self.__psl = PublicSuffixList(suffixList)
+            newHost = self.__psl.get_public_suffix(hostSansDmarc)
             # TODO: Look up the subdomain policy
             retval = self.lookup_receiver_policy(newHost)
         return retval
+
+    def __repr__(self):
+        return str(dict((key, value) for key, value in vars(self).iteritems() if not key.startswith("_Dmarc__")))
 
 
 def get_suffix_list_file_name():
