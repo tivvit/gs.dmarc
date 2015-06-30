@@ -142,7 +142,7 @@ class Dmarc:
 
             setattr(self, mapping[key], value)
 
-    def lookup_receiver_policy(self, host):
+    def __lookup_receiver_policy(self, host):
         '''Lookup the reciever policy for a host. Returns a ReceiverPolicy.
 
     :param str host: The host to query. The *actual* host that is queried has
@@ -181,7 +181,7 @@ class Dmarc:
         return retval
 
 
-    def __receiver_policy(self, host):
+    def receiver_policy(self, host):
         '''Get the DMARC receiver policy for a host.
 
     :param str host: The host to lookup.
@@ -198,7 +198,7 @@ class Dmarc:
        http://tools.ietf.org/html/draft-kucherawy-dmarc-base-04#section-3.2'''
         hostSansDmarc = host if host[:7] != '_dmarc.' else host[7:]
 
-        retval = self.lookup_receiver_policy(hostSansDmarc)
+        retval = self.__lookup_receiver_policy(hostSansDmarc)
         if retval == ReceiverPolicy.noDmarc:
             # TODO: automatically update the suffix list data file
             # <https://publicsuffix.org/list/effective_tld_names.dat>
@@ -208,7 +208,7 @@ class Dmarc:
                     self.__psl = PublicSuffixList(suffixList)
             newHost = self.__psl.get_public_suffix(hostSansDmarc)
             # TODO: Look up the subdomain policy
-            retval = self.lookup_receiver_policy(newHost)
+            retval = self.__lookup_receiver_policy(newHost)
         return retval
 
     def __repr__(self):
